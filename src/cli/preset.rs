@@ -3,12 +3,16 @@ use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use regex::Regex;
+
 use crate::llm::{
     http::HttpClient, AnthropicNativeJsonSchema, AnthropicToolCallAndPrompt, ForcedToolCall,
     JsonStrategy, Ladder, LlmRenamer, OpenAIJsonSchema, PromptToJson, ToolCallAndPrompt,
 };
 use crate::pipe;
-use crate::rename::{rename_all_identifiers_with_observer, RenameError, RenameObserver};
+use crate::rename::{
+    rename_all_identifiers_with_observer, RenameError, RenameObserver, DEFAULT_REGEX_PATTERN,
+};
 
 const DEFAULT_CONTEXT_SIZE: usize = 500;
 const DEFAULT_JSON_MODE: &str = "ladder";
@@ -20,6 +24,7 @@ pub struct PresetConfig {
     pub json_mode: JsonMode,
     pub context_size: usize,
     pub verbose: bool,
+    pub regex_pattern: String,
 }
 
 #[derive(Clone, Copy)]
@@ -53,6 +58,7 @@ pub struct PresetArgs {
     pub verbose: bool,
     pub progress: bool,
     pub timeout_seconds: Option<u64>,
+    pub regex_pattern: Option<String>,
 }
 
 /// Returns Err with a user-facing message if `mode` is not valid for `kind`.
@@ -80,6 +86,7 @@ pub fn run_preset(args: PresetArgs, defaults: PresetDefaults) -> i32 {
     let context_size_from_cli = args.context_size.is_some();
     let json_mode_from_cli = args.json_mode.is_some();
     let timeout_from_cli = args.timeout_seconds.is_some();
+    let regex_pattern_from_cli = args.regex_pattern.is_some();
 
     let json_mode_name = args.json_mode.as_deref().unwrap_or(DEFAULT_JSON_MODE);
     let json_mode = match JsonMode::parse(json_mode_name) {
@@ -109,6 +116,9 @@ pub fn run_preset(args: PresetArgs, defaults: PresetDefaults) -> i32 {
         json_mode,
         context_size: args.context_size.unwrap_or(DEFAULT_CONTEXT_SIZE),
         verbose: args.verbose,
+        regex_pattern: args
+            .regex_pattern
+            .unwrap_or_else(|| DEFAULT_REGEX_PATTERN.to_string()),
     };
     let output = args.output;
     let timeout_seconds = args.timeout_seconds.unwrap_or(defaults.timeout_seconds);
@@ -126,6 +136,7 @@ pub fn run_preset(args: PresetArgs, defaults: PresetDefaults) -> i32 {
                 context_size_from_cli,
                 json_mode_from_cli,
                 timeout_from_cli,
+                regex_pattern_from_cli,
             },
             timeout_seconds,
         );
@@ -147,6 +158,11 @@ pub fn run_preset(args: PresetArgs, defaults: PresetDefaults) -> i32 {
         }
     };
 
+    if let Err(err) = Regex::new(&cfg.regex_pattern) {
+        eprintln!(r"humanify: {0}", err);
+        return 1;
+    }
+
     let timeout = std::time::Duration::from_secs(timeout_seconds);
     let client = HttpClient::with_timeout(timeout);
     let ladder = Arc::new(build_ladder(client, &cfg, defaults.provider_kind));
@@ -156,7 +172,13 @@ pub fn run_preset(args: PresetArgs, defaults: PresetDefaults) -> i32 {
 
     let result = rt.block_on(async move {
         tokio::task::spawn_blocking(move || {
-            rename_all_identifiers_with_observer(&source, &mut renamer, context_size, &mut observer)
+            rename_all_identifiers_with_observer(
+                &source,
+                &mut renamer,
+                context_size,
+                &mut observer,
+                &cfg.regex_pattern,
+            )
         })
         .await
     });
@@ -189,6 +211,7 @@ struct ConfigSources {
     context_size_from_cli: bool,
     json_mode_from_cli: bool,
     timeout_from_cli: bool,
+    regex_pattern_from_cli: bool,
 }
 
 fn print_verbose_config(
@@ -235,6 +258,11 @@ fn print_verbose_config(
     eprintln!(
         "* timeout: {timeout_seconds}s ({})",
         source(sources.timeout_from_cli)
+    );
+    eprintln!(
+        "* RegEx pattern: {} ({})",
+        cfg.regex_pattern,
+        source(sources.regex_pattern_from_cli)
     );
     eprintln!("* input: {input}");
     match output {
@@ -731,6 +759,7 @@ mod tests {
             verbose: false,
             progress: false,
             timeout_seconds: None,
+            regex_pattern: None,
         }
     }
 
@@ -759,6 +788,7 @@ mod tests {
             json_mode: JsonMode::Ladder,
             context_size: 500,
             verbose: false,
+            regex_pattern: ".*".to_string(),
         }
     }
 

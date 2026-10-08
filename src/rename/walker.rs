@@ -7,15 +7,25 @@ use oxc_semantic::{AstNodes, NodeId, Scoping, SemanticBuilder, SymbolId};
 use oxc_span::{GetSpan, SourceType};
 use oxc_str::Ident;
 
+use regex::Regex; // specify symbol name match pattern
+
 use super::collision::CollisionResolver;
 use super::{NoopRenameObserver, RenameError, RenameObserver, Renamer};
+
+pub const DEFAULT_REGEX_PATTERN: &str = ".*";
 
 pub fn rename_all_identifiers(
     source: &str,
     renamer: &mut dyn Renamer,
     context_size: usize,
 ) -> Result<String, RenameError> {
-    rename_all_identifiers_with_observer(source, renamer, context_size, &mut NoopRenameObserver)
+    rename_all_identifiers_with_observer(
+        source,
+        renamer,
+        context_size,
+        &mut NoopRenameObserver,
+        DEFAULT_REGEX_PATTERN,
+    )
 }
 
 pub fn rename_all_identifiers_with_observer(
@@ -23,6 +33,7 @@ pub fn rename_all_identifiers_with_observer(
     renamer: &mut dyn Renamer,
     context_size: usize,
     observer: &mut dyn RenameObserver,
+    regex_pattern: &str,
 ) -> Result<String, RenameError> {
     if source.is_empty() {
         observer.identifiers_found(0);
@@ -54,15 +65,23 @@ pub fn rename_all_identifiers_with_observer(
     }
     let mut semantic = semantic_result.semantic;
 
+    // regex pattern to match
+    let reg_ex = Regex::new(&format!(r"^{regex_pattern}$")).unwrap();
+
     // Collect all symbols with their binding-scope span sizes for sorting.
     let mut entries: Vec<(SymbolId, u32, u32)> = {
         let scoping = semantic.scoping();
         let nodes = semantic.nodes();
         scoping
             .symbol_ids()
-            .map(|sym_id| {
-                let decl_node_id = scoping.symbol_declaration(sym_id);
+            .filter_map(|sym_id| {
                 let sym_name = scoping.symbol_name(sym_id);
+
+                if !reg_ex.is_match(sym_name) {
+                    return None;
+                }
+
+                let decl_node_id = scoping.symbol_declaration(sym_id);
                 let span = scoping.symbol_span(sym_id);
                 let binding_scope = scoping.symbol_scope_id(sym_id);
                 // Walk ancestors to find the scope-introducing ancestor node for context.
@@ -75,7 +94,7 @@ pub fn rename_all_identifiers_with_observer(
                     binding_scope,
                 );
                 let size = ctx_span.end.saturating_sub(ctx_span.start);
-                (sym_id, size, span.start)
+                Some((sym_id, size, span.start))
             })
             .collect()
     };
@@ -447,6 +466,40 @@ mod tests {
         assert!(
             a_scope.contains("a.toString()"),
             "scope for 'a' should contain usage: {a_scope}"
+        );
+    }
+
+    #[test]
+    fn renames_only_matching_regex() {
+        let input = "const foo = 1; const bar = 2; const baz = 3;";
+        let mut renamer = mapping(&[
+            ("foo", "changed_foo"),
+            ("bar", "changed_bar"),
+            ("baz", "changed_baz"),
+        ]);
+
+        let out = rename_all_identifiers_with_observer(
+            input,
+            &mut renamer,
+            500,
+            &mut NoopRenameObserver,
+            "bar|baz", // Match only 'bar' or 'baz'
+        )
+        .unwrap();
+
+        // 'foo' should remain completely untouched
+        assert!(
+            out.contains("const foo = 1;"),
+            "foo should be unchanged: {out}"
+        );
+        // 'bar' and 'baz' should be renamed
+        assert!(
+            out.contains("const changed_bar = 2;"),
+            "bar should be renamed: {out}"
+        );
+        assert!(
+            out.contains("const changed_baz = 3;"),
+            "baz should be renamed: {out}"
         );
     }
 

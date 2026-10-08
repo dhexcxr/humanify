@@ -25,6 +25,7 @@ pub struct Args {
     pub verbose: bool,
     pub progress: bool,
     pub timeout_seconds: Option<u64>,
+    pub regex_pattern: Option<String>,
 }
 
 impl From<Args> for PresetArgs {
@@ -40,6 +41,7 @@ impl From<Args> for PresetArgs {
             verbose: a.verbose,
             progress: a.progress,
             timeout_seconds: a.timeout_seconds,
+            regex_pattern: a.regex_pattern,
         }
     }
 }

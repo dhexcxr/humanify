@@ -59,6 +59,9 @@ struct SubArgs {
     #[arg(long)]
     timeout_seconds: Option<u64>,
 
+    /// Use Regular Expression to only match and rename some symbols
+    #[arg(short, long)]
+    regex_pattern: Option<String>,
     /// Show resolved configuration and rename steps on stderr
     #[arg(short, long)]
     verbose: bool,
@@ -80,6 +83,7 @@ fn into_openai_args(a: SubArgs) -> openai::Args {
         verbose: a.verbose,
         progress: a.progress,
         timeout_seconds: a.timeout_seconds,
+        regex_pattern: a.regex_pattern,
     }
 }
 
@@ -95,6 +99,7 @@ fn into_gemini_args(a: SubArgs) -> gemini::Args {
         verbose: a.verbose,
         progress: a.progress,
         timeout_seconds: a.timeout_seconds,
+        regex_pattern: a.regex_pattern,
     }
 }
 
@@ -110,6 +115,7 @@ fn into_anthropic_args(a: SubArgs) -> anthropic::Args {
         verbose: a.verbose,
         progress: a.progress,
         timeout_seconds: a.timeout_seconds,
+        regex_pattern: a.regex_pattern,
     }
 }
 
@@ -125,6 +131,7 @@ fn into_ollama_args(a: SubArgs) -> ollama::Args {
         verbose: a.verbose,
         progress: a.progress,
         timeout_seconds: a.timeout_seconds,
+        regex_pattern: a.regex_pattern,
     }
 }
 
@@ -140,6 +147,7 @@ fn into_openrouter_args(a: SubArgs) -> openrouter::Args {
         verbose: a.verbose,
         progress: a.progress,
         timeout_seconds: a.timeout_seconds,
+        regex_pattern: a.regex_pattern,
     }
 }
 
@@ -155,6 +163,7 @@ fn into_requesty_args(a: SubArgs) -> requesty::Args {
         verbose: a.verbose,
         progress: a.progress,
         timeout_seconds: a.timeout_seconds,
+        regex_pattern: a.regex_pattern,
     }
 }
 
