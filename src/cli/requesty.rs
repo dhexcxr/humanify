@@ -23,6 +23,7 @@ pub struct Args {
     pub progress: bool,
     pub timeout_seconds: Option<u64>,
     pub regex_pattern: Option<String>,
+    pub rpm: Option<u32>,
 }
 
 impl From<Args> for PresetArgs {
@@ -39,6 +40,7 @@ impl From<Args> for PresetArgs {
             progress: a.progress,
             timeout_seconds: a.timeout_seconds,
             regex_pattern: a.regex_pattern,
+            rpm: a.rpm,
         }
     }
 }

@@ -25,6 +25,7 @@ pub struct PresetConfig {
     pub context_size: usize,
     pub verbose: bool,
     pub regex_pattern: String,
+    pub rpm: Option<u32>,
 }
 
 #[derive(Clone, Copy)]
@@ -59,6 +60,7 @@ pub struct PresetArgs {
     pub progress: bool,
     pub timeout_seconds: Option<u64>,
     pub regex_pattern: Option<String>,
+    pub rpm: Option<u32>,
 }
 
 /// Returns Err with a user-facing message if `mode` is not valid for `kind`.
@@ -87,6 +89,7 @@ pub fn run_preset(args: PresetArgs, defaults: PresetDefaults) -> i32 {
     let json_mode_from_cli = args.json_mode.is_some();
     let timeout_from_cli = args.timeout_seconds.is_some();
     let regex_pattern_from_cli = args.regex_pattern.is_some();
+    let rpm_from_cli = args.rpm.is_some();
 
     let json_mode_name = args.json_mode.as_deref().unwrap_or(DEFAULT_JSON_MODE);
     let json_mode = match JsonMode::parse(json_mode_name) {
@@ -119,6 +122,7 @@ pub fn run_preset(args: PresetArgs, defaults: PresetDefaults) -> i32 {
         regex_pattern: args
             .regex_pattern
             .unwrap_or_else(|| DEFAULT_REGEX_PATTERN.to_string()),
+        rpm: args.rpm,
     };
     let output = args.output;
     let timeout_seconds = args.timeout_seconds.unwrap_or(defaults.timeout_seconds);
@@ -137,6 +141,7 @@ pub fn run_preset(args: PresetArgs, defaults: PresetDefaults) -> i32 {
                 json_mode_from_cli,
                 timeout_from_cli,
                 regex_pattern_from_cli,
+                rpm_from_cli,
             },
             timeout_seconds,
         );
@@ -158,13 +163,21 @@ pub fn run_preset(args: PresetArgs, defaults: PresetDefaults) -> i32 {
         }
     };
 
+    // Validate RPM if provided
+    if let Some(rpm) = cfg.rpm {
+        if rpm == 0 {
+            eprintln!("humanify: --rpm must be greater than 0");
+            return 1;
+        }
+    }
+
     if let Err(err) = Regex::new(&cfg.regex_pattern) {
         eprintln!(r"humanify: {0}", err);
         return 1;
     }
 
     let timeout = std::time::Duration::from_secs(timeout_seconds);
-    let client = HttpClient::with_timeout(timeout);
+    let client = HttpClient::with_config(timeout, cfg.rpm); // NOTE TODO update to with_config()
     let ladder = Arc::new(build_ladder(client, &cfg, defaults.provider_kind));
     let mut renamer = LlmRenamer::new(Arc::clone(&ladder), rt.handle().clone());
     let mut observer = CliObserver::new(cfg.verbose, args.progress, Arc::clone(&ladder));
@@ -212,6 +225,7 @@ struct ConfigSources {
     json_mode_from_cli: bool,
     timeout_from_cli: bool,
     regex_pattern_from_cli: bool,
+    rpm_from_cli: bool,
 }
 
 fn print_verbose_config(
@@ -264,6 +278,9 @@ fn print_verbose_config(
         cfg.regex_pattern,
         source(sources.regex_pattern_from_cli)
     );
+    if let Some(rpm) = cfg.rpm {
+        eprintln!("* RPM limit: {} ({})", rpm, source(sources.rpm_from_cli));
+    }
     eprintln!("* input: {input}");
     match output {
         Some(path) => eprintln!("* output: {}", path.display()),
@@ -760,6 +777,7 @@ mod tests {
             progress: false,
             timeout_seconds: None,
             regex_pattern: None,
+            rpm: None,
         }
     }
 
@@ -789,6 +807,7 @@ mod tests {
             context_size: 500,
             verbose: false,
             regex_pattern: ".*".to_string(),
+            rpm: None,
         }
     }
 

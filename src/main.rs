@@ -62,6 +62,11 @@ struct SubArgs {
     /// Use Regular Expression to only match and rename some symbols
     #[arg(short, long)]
     regex_pattern: Option<String>,
+
+    /// Limit the maximum requests per minute sent to the LLM API
+    #[arg(long, value_name = "RPM")]
+    rpm: Option<u32>,
+
     /// Show resolved configuration and rename steps on stderr
     #[arg(short, long)]
     verbose: bool,
@@ -84,6 +89,7 @@ fn into_openai_args(a: SubArgs) -> openai::Args {
         progress: a.progress,
         timeout_seconds: a.timeout_seconds,
         regex_pattern: a.regex_pattern,
+        rpm: a.rpm,
     }
 }
 
@@ -100,6 +106,7 @@ fn into_gemini_args(a: SubArgs) -> gemini::Args {
         progress: a.progress,
         timeout_seconds: a.timeout_seconds,
         regex_pattern: a.regex_pattern,
+        rpm: a.rpm,
     }
 }
 
@@ -116,6 +123,7 @@ fn into_anthropic_args(a: SubArgs) -> anthropic::Args {
         progress: a.progress,
         timeout_seconds: a.timeout_seconds,
         regex_pattern: a.regex_pattern,
+        rpm: a.rpm,
     }
 }
 
@@ -132,6 +140,7 @@ fn into_ollama_args(a: SubArgs) -> ollama::Args {
         progress: a.progress,
         timeout_seconds: a.timeout_seconds,
         regex_pattern: a.regex_pattern,
+        rpm: a.rpm,
     }
 }
 
@@ -148,6 +157,7 @@ fn into_openrouter_args(a: SubArgs) -> openrouter::Args {
         progress: a.progress,
         timeout_seconds: a.timeout_seconds,
         regex_pattern: a.regex_pattern,
+        rpm: a.rpm,
     }
 }
 
@@ -164,6 +174,7 @@ fn into_requesty_args(a: SubArgs) -> requesty::Args {
         progress: a.progress,
         timeout_seconds: a.timeout_seconds,
         regex_pattern: a.regex_pattern,
+        rpm: a.rpm,
     }
 }
 

@@ -2,22 +2,49 @@ use anyhow::anyhow;
 use serde_json::Value;
 use std::time::Duration;
 
+use governor::{
+    clock::DefaultClock,
+    state::{direct::NotKeyed, InMemoryState},
+    Quota, RateLimiter,
+};
+use std::num::NonZeroU32;
+use std::sync::Arc;
+
+pub type SharedRateLimiter = Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock>>;
+
 #[derive(Clone)]
 pub struct HttpClient {
     inner: reqwest::Client,
+    rate_limiter: Option<SharedRateLimiter>,
 }
 
 impl HttpClient {
+    /// Default constructor: 10-minute timeout and no rate limit
     pub fn new() -> Self {
-        Self::with_timeout(Duration::from_secs(600))
+        Self::with_config(Duration::from_secs(600), None)
     }
 
+    /// Convenience constructor for just setting a timeout
     pub fn with_timeout(timeout: Duration) -> Self {
+        Self::with_config(timeout, None)
+    }
+
+    /// Primary constructor handling all configuration
+    pub fn with_config(timeout: Duration, rpm: Option<u32>) -> Self {
         let inner = reqwest::Client::builder()
             .timeout(timeout)
             .build()
             .expect("reqwest client init failed");
-        Self { inner }
+
+        let rate_limiter = rpm.and_then(NonZeroU32::new).map(|non_zero_rpm| {
+            let quota = Quota::per_minute(non_zero_rpm);
+            Arc::new(RateLimiter::direct(quota))
+        });
+
+        Self {
+            inner,
+            rate_limiter,
+        }
     }
 
     pub async fn post_json(
@@ -46,6 +73,11 @@ impl HttpClient {
         }
 
         request = request.json(body);
+
+        // if rate limiting enabled, wait until token available
+        if let Some(limiter) = &self.rate_limiter {
+            limiter.until_ready().await;
+        }
 
         let response = request
             .send()
@@ -439,6 +471,33 @@ mod tests {
         assert!(
             reason.contains("Unsupported parameter: foo"),
             "reason should contain message: {reason}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_http_client_rate_limiter_setup() {
+        // Create a client with a rate limit of 60 RPM
+        let client = HttpClient::with_config(Duration::from_secs(1), Some(60));
+        assert!(
+            client.rate_limiter.is_some(),
+            "Rate limiter should be initialized"
+        );
+
+        let limiter = client.rate_limiter.as_ref().unwrap();
+
+        // Verify that the governor rate limiter allows a burst of exactly 60 cells/tokens
+        for i in 0..60 {
+            assert!(
+                limiter.check().is_ok(),
+                "Token {} should be allowed immediately in the burst quota",
+                i
+            );
+        }
+
+        // The 61st token check must be rate-limited and return an Err
+        assert!(
+            limiter.check().is_err(),
+            "The 61st request must be throttled by the rate limiter"
         );
     }
 }
